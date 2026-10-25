@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import AuthForm from "./auth/AuthForm";
 import MessageList from "./chat/MessageList";
 import SendMessageForm from "./chat/SendMessageForm";
 import OpenChat from "./chat/OpenChat";
 import style from "./chatwindow.module.scss";
-import { sendWhatsappMessage } from "../utils/api";
+import { getIncomingMessages, sendWhatsappMessage } from "../utils/api";
 
 const ChatWindow = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -22,6 +22,7 @@ const ChatWindow = () => {
     setIsAuthenticated(true);
   };
 
+  //отправка сообщения
   const handleSendMessage = async (text) => {
     if (!text.trim() || !phoneNumber || !credentials) return;
 
@@ -44,47 +45,68 @@ const ChatWindow = () => {
     }
   };
 
-//загрузка истории сообщений
+	/* ✅ Хук №1: Запускаем поллинг ТОЛЬКО при наличии собеседника */
+	useEffect(() => {
+		let intervalId;
+		// Проверяем наличие токенов И выбранного номера 
+		if (credentials && credentials.token && phoneNumber) {
+			const fetchAndFilter = async () => {
+				try {
+					const responseData = await getIncomingMessages(credentials.instanceId, credentials.token);
+					// Проверяем тип данных перед фильтрацией 
+					if (!Array.isArray(responseData)) {
+						console.warn('Сервер вернул пустой ответ:', responseData);
+						return;
+					}
+					
+					// Фильтруем только те, что пришли ОТ собеседника 
+					const filteredMsgs = responseData.filter((msg) =>
+						msg.chatId === `${phoneNumber}@c.us`
+					).map((msg) => ({
+						sender: "peer",
+						text: msg.messageData.textMessageData?.text ?? "",
+						timestamp: Date.parse(msg.timestamp),
+					}));
+					setMessages(filteredMsgs);
+				} catch (err) {
+					console.error('Ошибка опроса:', err.response?.data);
+					// Если сервер вернул ошибку 401 или другую критическую, можно сбросить токен 
+					if (axios.isAxiosError(err) && [401, 503].includes(err.response?.status)) {
+						alert("Сессия WhatsApp истекла. Пожалуйста, авторизуйтесь снова.");
+						handleLogout();
+					}
+				}
+			};
+			intervalId = setInterval(fetchAndFilter, 5_000);
+		}
+		return () => clearInterval(intervalId);
+	}, [credentials, phoneNumber]);
+	
+	/* ✅ Хук №2: Очистка стейта при выходе из приложения */
+	useEffect(() => {
+		if (!isAuthenticated) {
+		// При выходе очищаем все данные 
+			setCredentials(null);
+			setPhoneNumber(null);
+			setMessages([]);
+		}
+	}, [isAuthenticated]);
 
-const loadChatHistory = async () => {
-  if (!credentials || !phoneNumber) return;
+  //выход из чата
+  const handleCloseChat = () => {
+    // Сбрасываем номер собеседника
+    setPhoneNumber(null);
+    // Чистим историю переписки
+    setMessages([]);
+  };
 
-  const chatId = `${phoneNumber}@c.us`;
-  try {
-    const messagesData = await getWhatsappMessages(
-      credentials.instanceId,
-      credentials.token,
-      chatId,
-    );
-
-    // Преобразуем данные к нужному формату
-    const formattedMsgs = messagesData.map((msg) => ({
-      sender: msg.chatId === phoneNumber ? "peer" : "me",
-      text: msg.messageData.textMessageData?.text ?? "",
-      timestamp: Date.parse(msg.timestamp),
-    }));
-
-    setMessages(formattedMsgs); // Загружаем историю
-  } catch (err) {
-    alert("Ошибка при загрузке истории: " + err.message);
-  }
-};
-
-//выход из чата
-const handleCloseChat = () => {
-  // Сбрасываем номер собеседника
-  setPhoneNumber(null);
-  // Чистим историю переписки
-  setMessages([]);
-};
-
-//выход из приложения
-const handleLogout = () => {
-  setCredentials(null); // Токены и ID инстанса
-  setPhoneNumber(null); // Номер собеседника
-  setMessages([]); // История переписки
-  setIsAuthenticated(false);
-};
+  //выход из приложения
+  const handleLogout = () => {
+    setCredentials(null); // Токены и ID инстанса
+    setPhoneNumber(null); // Номер собеседника
+    setMessages([]); // История переписки
+    setIsAuthenticated(false);
+  };
 
   return (
     <div className={style.chatApp}>
@@ -98,7 +120,7 @@ const handleLogout = () => {
         {!phoneNumber && isAuthenticated && (
           <button onClick={handleLogout} className={style.logoutBtn}>
             Выйти из приложения
-            </button>
+          </button>
         )}
         <h2 className={style.title}>
           {!isAuthenticated && "🔑 Авторизация"}
@@ -114,8 +136,8 @@ const handleLogout = () => {
       {isAuthenticated && !phoneNumber && (
         <OpenChat
           setPhoneNumber={(num) => {
-            setPhoneNumber(num);
-            loadChatHistory();
+            const cleanedNum = num.replace(/\D/g, "");
+            setPhoneNumber(cleanedNum);
           }}
         />
       )}
