@@ -49,7 +49,7 @@ const ChatWindow = () => {
   // Поллинг (опрос всех событий каждые 3 секунды)
   useEffect(() => {
     let intervalId;
-    if (!credentials || !credentials.token || !phoneNumber) return;
+    if (!credentials || !credentials.token || !phoneNumber || messages.length === 0) return;
     const fetchAndFilter = async () => {
       try {
         const responseData = await getWhatsappEvents(
@@ -82,7 +82,7 @@ const ChatWindow = () => {
 
     intervalId = setInterval(fetchAndFilter, 3000); // Каждые 3 сек
     return () => clearInterval(intervalId);
-  }, [credentials, phoneNumber]);
+  }, [credentials, phoneNumber, messages]);
 
   //фильтрация событий
   const extractTextMessagesFromEvents = (events, phoneNumber) => {
