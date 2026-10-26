@@ -77,7 +77,7 @@ export const sendWhatsappMessage = async (
   }
 };
 
-/получение сообщения
+//получение сообщения
 
 export const getWhatsappEvents = async (
   instanceId,
