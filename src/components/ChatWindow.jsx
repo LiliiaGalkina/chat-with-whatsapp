@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import AuthForm from "./auth/AuthForm";
 import MessageList from "./chat/MessageList";
 import SendMessageForm from "./chat/SendMessageForm";
 import OpenChat from "./chat/OpenChat";
 import style from "./chatwindow.module.scss";
-import { getIncomingMessages, sendWhatsappMessage } from "../utils/api";
+import { sendWhatsappMessage } from "../utils/api";
 
 const ChatWindow = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -13,6 +13,7 @@ const ChatWindow = () => {
   const [inputValue, setInputValue] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [credentials, setCredentials] = useState(null);
+  const [allEvents, setAllEvents] = useState([]);
 
   // 3. Обработчик успеха
   const handleAuthSuccess = (creds) => {
@@ -22,7 +23,6 @@ const ChatWindow = () => {
     setIsAuthenticated(true);
   };
 
-  //отправка сообщения
   const handleSendMessage = async (text) => {
     if (!text.trim() || !phoneNumber || !credentials) return;
 
@@ -45,52 +45,56 @@ const ChatWindow = () => {
     }
   };
 
-	/* ✅ Хук №1: Запускаем поллинг ТОЛЬКО при наличии собеседника */
-	useEffect(() => {
-		let intervalId;
-		// Проверяем наличие токенов И выбранного номера 
-		if (credentials && credentials.token && phoneNumber) {
-			const fetchAndFilter = async () => {
-				try {
-					const responseData = await getIncomingMessages(credentials.instanceId, credentials.token);
-					// Проверяем тип данных перед фильтрацией 
-					if (!Array.isArray(responseData)) {
-						console.warn('Сервер вернул пустой ответ:', responseData);
-						return;
-					}
-					
-					// Фильтруем только те, что пришли ОТ собеседника 
-					const filteredMsgs = responseData.filter((msg) =>
-						msg.chatId === `${phoneNumber}@c.us`
-					).map((msg) => ({
-						sender: "peer",
-						text: msg.messageData.textMessageData?.text ?? "",
-						timestamp: Date.parse(msg.timestamp),
-					}));
-					setMessages(filteredMsgs);
-				} catch (err) {
-					console.error('Ошибка опроса:', err.response?.data);
-					// Если сервер вернул ошибку 401 или другую критическую, можно сбросить токен 
-					if (axios.isAxiosError(err) && [401, 503].includes(err.response?.status)) {
-						alert("Сессия WhatsApp истекла. Пожалуйста, авторизуйтесь снова.");
-						handleLogout();
-					}
-				}
-			};
-			intervalId = setInterval(fetchAndFilter, 5_000);
-		}
-		return () => clearInterval(intervalId);
-	}, [credentials, phoneNumber]);
-	
-	/* ✅ Хук №2: Очистка стейта при выходе из приложения */
-	useEffect(() => {
-		if (!isAuthenticated) {
-		// При выходе очищаем все данные 
-			setCredentials(null);
-			setPhoneNumber(null);
-			setMessages([]);
-		}
-	}, [isAuthenticated]);
+  // Поллинг (опрос всех событий каждые 3 секунды)
+  useEffect(() => {
+    let intervalId;
+    if (!credentials || !credentials.token || !phoneNumber) return;
+    const fetchAndFilter = async () => {
+      try {
+        const responseData = await getWhatsappEvents(
+          credentials.instanceId,
+          credentials.token,
+        );
+        if (!Array.isArray(response.data)) {
+          console.warn("Сервер вернул некорректный ответ:", response);
+          return;
+        }
+        console.log("СЫРЫЕ ДАННЫЕ ОТ СЕРВЕРА:", responseData);
+        // Сохраняем ВСЕ полученные события из API
+        setAllEvents((prev) => [...prev, ...responseData]);
+      } catch (error) {
+        console.error("Ошибка опроса:", error.response?.statusText);
+
+        if (
+          axios.isAxiosError(error) &&
+          [401, 503].includes(error.response?.status)
+        ) {
+          alert(
+            "Сессия WhatsApp истекла или произошла ошибка подключения." +
+              "\nПожалуйста, выйдите из приложения и войдите снова.",
+          );
+          handleLogout();
+        }
+      }
+    };
+
+    intervalId = setInterval(fetchAndFilter, 3000); // Каждые 3 сек
+    return () => clearInterval(intervalId);
+  }, [credentials, phoneNumber]);
+
+  //фильтрация событий
+  const extractTextMessagesFromEvents = (events, phoneNumber) =>
+    events
+      .filter(
+        (event) =>
+          event?.chatId === `${phoneNumber}@c.us` && // <— Проверяем сразу chatId
+          event?.messageData?.textMessageData,
+      )
+      .map((event) => ({
+        sender: "peer",
+        text: event.messageData.textMessageData.text ?? "",
+        timestamp: Date.parse(event.timestamp),
+      }));
 
   //выход из чата
   const handleCloseChat = () => {
@@ -136,8 +140,7 @@ const ChatWindow = () => {
       {isAuthenticated && !phoneNumber && (
         <OpenChat
           setPhoneNumber={(num) => {
-            const cleanedNum = num.replace(/\D/g, "");
-            setPhoneNumber(cleanedNum);
+            setPhoneNumber(num);
           }}
         />
       )}
@@ -151,7 +154,12 @@ const ChatWindow = () => {
             onSubmit={handleSendMessage}
             disabled={isSending}
           />
-          <MessageList messages={messages} />
+          <MessageList
+            messages={[
+              ...messages,
+              ...extractTextMessagesFromEvents(allEvents, phoneNumber),
+            ]}
+          />
         </div>
       )}
     </div>
