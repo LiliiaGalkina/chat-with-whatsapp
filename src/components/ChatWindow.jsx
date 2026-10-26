@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AuthForm from "./auth/AuthForm";
 import MessageList from "./chat/MessageList";
 import SendMessageForm from "./chat/SendMessageForm";
@@ -13,6 +13,7 @@ const ChatWindow = () => {
   const [inputValue, setInputValue] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [credentials, setCredentials] = useState(null);
+  const [allEvents, setAllEvents] = useState([]);
 
   // 3. Обработчик успеха
   const handleAuthSuccess = (creds) => {
@@ -44,47 +45,72 @@ const ChatWindow = () => {
     }
   };
 
-//загрузка истории сообщений
+  // Поллинг (опрос всех событий каждые 3 секунды)
+  useEffect(() => {
+    let intervalId;
+    if (!credentials || !credentials.token || !phoneNumber) return;
+    const fetchAndFilter = async () => {
+      try {
+        const responseData = await getWhatsappEvents(
+          credentials.instanceId,
+          credentials.token,
+        );
+        if (!Array.isArray(response.data)) {
+          console.warn("Сервер вернул некорректный ответ:", response);
+          return;
+        }
+        console.log("СЫРЫЕ ДАННЫЕ ОТ СЕРВЕРА:", responseData);
+        // Сохраняем ВСЕ полученные события из API
+        setAllEvents((prev) => [...prev, ...responseData]);
+      } catch (error) {
+        console.error("Ошибка опроса:", error.response?.statusText);
 
-const loadChatHistory = async () => {
-  if (!credentials || !phoneNumber) return;
+        if (
+          axios.isAxiosError(error) &&
+          [401, 503].includes(error.response?.status)
+        ) {
+          alert(
+            "Сессия WhatsApp истекла или произошла ошибка подключения." +
+              "\nПожалуйста, выйдите из приложения и войдите снова.",
+          );
+          handleLogout();
+        }
+      }
+    };
 
-  const chatId = `${phoneNumber}@c.us`;
-  try {
-    const messagesData = await getWhatsappMessages(
-      credentials.instanceId,
-      credentials.token,
-      chatId,
-    );
+    intervalId = setInterval(fetchAndFilter, 3000); // Каждые 3 сек
+    return () => clearInterval(intervalId);
+  }, [credentials, phoneNumber]);
 
-    // Преобразуем данные к нужному формату
-    const formattedMsgs = messagesData.map((msg) => ({
-      sender: msg.chatId === phoneNumber ? "peer" : "me",
-      text: msg.messageData.textMessageData?.text ?? "",
-      timestamp: Date.parse(msg.timestamp),
-    }));
+  //фильтрация событий
+  const extractTextMessagesFromEvents = (events, phoneNumber) =>
+    events
+      .filter(
+        (event) =>
+          event?.chatId === `${phoneNumber}@c.us` && // <— Проверяем сразу chatId
+          event?.messageData?.textMessageData,
+      )
+      .map((event) => ({
+        sender: "peer",
+        text: event.messageData.textMessageData.text ?? "",
+        timestamp: Date.parse(event.timestamp),
+      }));
 
-    setMessages(formattedMsgs); // Загружаем историю
-  } catch (err) {
-    alert("Ошибка при загрузке истории: " + err.message);
-  }
-};
+  //выход из чата
+  const handleCloseChat = () => {
+    // Сбрасываем номер собеседника
+    setPhoneNumber(null);
+    // Чистим историю переписки
+    setMessages([]);
+  };
 
-//выход из чата
-const handleCloseChat = () => {
-  // Сбрасываем номер собеседника
-  setPhoneNumber(null);
-  // Чистим историю переписки
-  setMessages([]);
-};
-
-//выход из приложения
-const handleLogout = () => {
-  setCredentials(null); // Токены и ID инстанса
-  setPhoneNumber(null); // Номер собеседника
-  setMessages([]); // История переписки
-  setIsAuthenticated(false);
-};
+  //выход из приложения
+  const handleLogout = () => {
+    setCredentials(null); // Токены и ID инстанса
+    setPhoneNumber(null); // Номер собеседника
+    setMessages([]); // История переписки
+    setIsAuthenticated(false);
+  };
 
   return (
     <div className={style.chatApp}>
@@ -98,7 +124,7 @@ const handleLogout = () => {
         {!phoneNumber && isAuthenticated && (
           <button onClick={handleLogout} className={style.logoutBtn}>
             Выйти из приложения
-            </button>
+          </button>
         )}
         <h2 className={style.title}>
           {!isAuthenticated && "🔑 Авторизация"}
@@ -115,7 +141,6 @@ const handleLogout = () => {
         <OpenChat
           setPhoneNumber={(num) => {
             setPhoneNumber(num);
-            loadChatHistory();
           }}
         />
       )}
@@ -129,7 +154,12 @@ const handleLogout = () => {
             onSubmit={handleSendMessage}
             disabled={isSending}
           />
-          <MessageList messages={messages} />
+          <MessageList
+            messages={[
+              ...messages,
+              ...extractTextMessagesFromEvents(allEvents, phoneNumber),
+            ]}
+          />
         </div>
       )}
     </div>

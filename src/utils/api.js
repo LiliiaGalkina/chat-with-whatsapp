@@ -79,41 +79,17 @@ export const sendWhatsappMessage = async (
 
 //получение сообщения
 
-export const getWhatsappMessages = async (
+export const getWhatsappEvents = async (
   instanceId,
-  token,
-  chatId, // Это номер собеседника + @c.us
+  token, 
 ) => {
   try {
-    const response = await axios.get(
-      `${API_DOMAIN}/waInstance${instanceId}/receive/ReceiveChat/${token}`,
-      { params: { chatId } },
+    return await axios.get(
+      `${API_DOMAIN}/waInstance${instanceId}/ReceiveNotification/${token}`,
+      { headers: { Authorization: `Bearer ${token}` } },
     );
-    return response.data;
   } catch (error) {
-    console.error("Ошибка при получении сообщений:", error);
-    throw new Error(
-      error.response?.data.errors[0] || "Не удалось загрузить историю.",
-    );
-  }
-};
-
-//загрузить историю переписки
-export const getChatHistory = async (instanceId, token, chatId) => {
-  try {
-    const response = await axios.get(
-      `${API_DOMAIN}/waInstance${instanceId}/receive/ReceiveChat/${token}`,
-      { params: { chatId } },
-    );
-    return response.data.map((msg) => ({
-      sender: msg.chatId === chatId ? "peer" : "me",
-      text: msg.messageData.textMessageData?.text ?? "",
-      timestamp: Date.parse(msg.timestamp),
-    }));
-  } catch (error) {
-    console.error("Ошибка при получении истории:", error);
-    throw new Error(
-      error.response?.data.errors[0] || "Не удалось получить сообщения.",
-    );
+    console.error("Ошибка загрузки:", error.response?.data);
+    throw new Error(`Не удалось получить события (${error.response?.status})`);
   }
 };
