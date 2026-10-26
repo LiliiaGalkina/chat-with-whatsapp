@@ -77,31 +77,19 @@ export const sendWhatsappMessage = async (
   }
 };
 
-//получение сообщения
+/получение сообщения
 
-export const getIncomingMessages = async (
+export const getWhatsappEvents = async (
   instanceId,
-  token, // Больше не нужен chatId!
+  token, 
 ) => {
   try {
     return await axios.get(
-      `${API_DOMAIN}/waInstance${instanceId}/ReceiveMessages/${token}`,
-      // ↓↓↓ Вот сюда добавьте эту строчку
-      {
-        headers: { Authorization: `Bearer ${token}` },
-        validateStatus(status) {
-          // Для ReceiveMessages считаем 4xx ошибками только серверные баги (5xx)
-          return status >= 200 && status < 500;
-        },
-      },
-	  );
-	  
-  } catch (error) {
-    if (!axios.isAxiosError(error)) throw error;
-
-    console.error("Ошибка загрузки:", error.response?.data);
-    throw new Error(
-      `Не удалось получить сообщения (${error.response?.status})`,
+      `${API_DOMAIN}/waInstance${instanceId}/ReceiveNotification/${token}`,
+      { headers: { Authorization: `Bearer ${token}` } },
     );
+  } catch (error) {
+    console.error("Ошибка загрузки:", error.response?.data);
+    throw new Error(`Не удалось получить события (${error.response?.status})`);
   }
 };
