@@ -1,3 +1,4 @@
+import axios from "axios";
 import { useState, useEffect } from "react";
 import AuthForm from "./auth/AuthForm";
 import MessageList from "./chat/MessageList";
@@ -59,11 +60,12 @@ const ChatWindow = () => {
           console.warn("Сервер вернул некорректный ответ:", response);
           return;
         }
-        console.log("СЫРЫЕ ДАННЫЕ ОТ СЕРВЕРА:", responseData);
+       
         // Сохраняем ВСЕ полученные события из API
         setAllEvents((prev) => [...prev, ...responseData]);
       } catch (error) {
         console.error("Ошибка опроса:", error.response?.statusText);
+
 
         if (
           axios.isAxiosError(error) &&
@@ -83,18 +85,22 @@ const ChatWindow = () => {
   }, [credentials, phoneNumber]);
 
   //фильтрация событий
-  const extractTextMessagesFromEvents = (events, phoneNumber) =>
-    events
+  const extractTextMessagesFromEvents = (events, phoneNumber) => {
+    // ↓↓↓ Защита от null/undefined
+    if (!Array.isArray(events)) return [];
+
+    return events
       .filter(
         (event) =>
-          event?.chatId === `${phoneNumber}@c.us` && // <— Проверяем сразу chatId
+          event?.chatId === `${phoneNumber}@c.us` &&
           event?.messageData?.textMessageData,
       )
       .map((event) => ({
         sender: "peer",
         text: event.messageData.textMessageData.text ?? "",
-        timestamp: Date.parse(event.timestamp),
+        timestamp: Date.parse(event.timestamp), 
       }));
+  };
 
   //выход из чата
   const handleCloseChat = () => {

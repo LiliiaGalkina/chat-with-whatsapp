@@ -84,10 +84,11 @@ export const getWhatsappEvents = async (
   token, 
 ) => {
   try {
-    return await axios.get(
+    const { data } = await axios.get(
       `${API_DOMAIN}/waInstance${instanceId}/ReceiveNotification/${token}`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
+    return data ?? [];
   } catch (error) {
     console.error("Ошибка загрузки:", error.response?.data);
     throw new Error(`Не удалось получить события (${error.response?.status})`);
